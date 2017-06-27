@@ -1,0 +1,10 @@
+<!-- -->
+<launch>
+
+	<node name="ibvs_controller_node" pkg="ibvs_controller" type="ibvs_controller_node" output="screen">
+		<remap from="visual_tracker"  to="/visp_auto_tracker/object_position"/>
+		<remap from="ibvs_control_output"  to="/control_output"/>
+		<!--rosparam>virtual_fence:  [3.0, -2.45, 1.85, -2.4, 2.25]</rosparam-->  <!-- [maxX, minX, maxY, minY, maxAltitude] -->
+	</node>
+
+</launch>
