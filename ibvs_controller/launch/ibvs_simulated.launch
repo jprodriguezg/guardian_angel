@@ -1,10 +1,22 @@
 <!-- -->
 <launch>
 
+	  <!-- Launch the tracking node -->
+  	<node pkg="visp_auto_tracker" type="visp_auto_tracker" name="visp_auto_tracker" output="screen">
+		<param name="model_path" value="$(find visp_auto_tracker)/models" />
+		<param name="model_name" value="pattern" />
+		<param name="debug_display" value="False" />
+		<!-- param name="code_message" value="Ver1" / -->
+
+		<remap from="/visp_auto_tracker/camera_info" to="/vrep/camera_info"/>
+		<remap from="/visp_auto_tracker/image_raw" to="/vrep/vision_sensor"/>
+  	</node>
+
+	<!-- Launch the ibvs node -->
 	<node name="ibvs_controller_node" pkg="ibvs_controller" type="ibvs_controller_node" output="screen">
 		<remap from="visual_tracker"  to="/visp_auto_tracker/object_position"/>
-		<remap from="ibvs_control_output"  to="/control_output"/>
-		<!--rosparam>virtual_fence:  [3.0, -2.45, 1.85, -2.4, 2.25]</rosparam-->  <!-- [maxX, minX, maxY, minY, maxAltitude] -->
+		<remap from="ibvs_control_output"  to="/ibvs_controller/control_output"/>
+		<remap from="vrep_drone_pose"  to="/vrep/camera/pose"/>
 	</node>
 
 </launch>
