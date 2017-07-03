@@ -17,6 +17,8 @@
 		<remap from="visual_tracker"  to="/visp_auto_tracker/object_position"/>
 		<remap from="ibvs_control_output"  to="/ibvs_controller/control_output"/>
 		<remap from="vrep_drone_pose"  to="/vrep/camera/pose"/>
+      <remap from="vrep_drone_velocity"  to="/vrep/camera/cmd_vel"/>
+      <remap from="vrep_drone2camera_pose"  to="/vrep/camera/position2drone"/>
 	</node>
 
 </launch>
