@@ -58,15 +58,13 @@ void hasReceivedDrone2CameraPosition(const geometry_msgs::PointStamped::ConstPtr
 	return;
 }
 
-
-
 // -------- Functions --------------------
 /* This function retrives the variable and its derivatives. It is lazy function but saves space. Unfortunately I
  	did not find how to get a subverctor from a vector in c++ */
-void VariablesandDerivatives(std::vector<double> x, std::vector<double> xd, Eigen::RowVectorXd &var, Eigen::RowVectorXd &dvar, int starting_ref){
+void VariablesandDerivatives(std::vector<double> x, std::vector<double> xd, Eigen::VectorXd &var, Eigen::VectorXd &dvar, int starting_ref){
 
 	int j = 0;
-	for (int i = starting_ref; i<i+3; i++){
+	for (int i = starting_ref; i<starting_ref+3; i++){
 		var(j) = x[i];
 		dvar(j) = xd[i];
 		j++;
@@ -98,8 +96,8 @@ Eigen::MatrixXd computeImageJacobian(std::vector<double> vf, std::vector<double>
 /* This functions makes the transformation between the derivatives of the euler angles and the angular velocities
 	NOTE: Be careful with the notation of the angles, otherwise the function returns a wrong transformation */
 
-Eigen::RowVectorXd fromAngleDerivatives2AngularVelocity(Eigen::RowVectorXd euler_derivatives, Eigen::RowVectorXd euler_angles){
-	Eigen::RowVectorXd angular_vel (3);
+Eigen::VectorXd fromAngleDerivatives2AngularVelocity(Eigen::VectorXd euler_derivatives, Eigen::VectorXd euler_angles){
+	Eigen::VectorXd angular_vel(3);
 	// NOTE: The relation of the Euler angles to RPY is the following (The same as in my notebook)
 	// gm -> Roll, ph -> yaw, th -> pitch.
 	double gm = euler_angles[0];
@@ -126,7 +124,7 @@ Eigen::MatrixXd PseudoInverse(Eigen::MatrixXd matrix){
 }
 
 Eigen::MatrixXd SkewSymmetricMatrix(std::vector<double> input_vec){
-	Eigen::MatrixXd S;
+	Eigen::MatrixXd S(3,3);
 	S << 0.0, -input_vec[2], input_vec[1],
     input_vec[2], 0.0, -input_vec[0],
     -input_vec[1], input_vec[0], 0.0;
@@ -137,11 +135,11 @@ Eigen::MatrixXd computeDrone2CameraJacobian(std::vector<double> drone2cameraVec)
 	Eigen::MatrixXd Jcd(6,6);
 
 	// Skew symmetric of the vector from the drone to the camera
-	Eigen::MatrixXd Sdc = SkewSymmetricMatrix(drone2cameraVec)*-1.0;
+	Eigen::MatrixXd Sdc = SkewSymmetricMatrix(drone2cameraVec)*-1;
 
 	// Rotation between the drone and the camera
 	// NOTE: This rotation was computed based on the orientations in the V-REP scene
-	Eigen::MatrixXd Rotationdc;
+	Eigen::MatrixXd Rotationdc(3,3);
 	Rotationdc << 1.0, 0.0,	0.0,
     				0.0, -1.0, 0.0,
     				0.0, 0.0, -1.0;
@@ -149,7 +147,7 @@ Eigen::MatrixXd computeDrone2CameraJacobian(std::vector<double> drone2cameraVec)
 	Jcd.topLeftCorner(3,3) = Eigen::MatrixXd::Identity(3, 3);
 	Jcd.bottomLeftCorner(3,3) = Eigen::MatrixXd::Zero(3,3);
 	Jcd.topRightCorner(3,3) = Sdc;
-	Jcd.bottomRightCorner(3, 3) = Rotationdc;
+	Jcd.bottomRightCorner(3,3) = Rotationdc;
 	return Jcd;
 }
 
@@ -170,7 +168,7 @@ msg.layout.dim[0].stride = 1;
 
 // Intialize some local variables
 Eigen::MatrixXd Jcd, J, Ji, Jv, Jw, Jvps;
-Eigen::RowVectorXd angular_vel(3), imagef(2), imgefd(2), error(3), angles(3), angles_derivatives(3), position(3), linear_vel(3);
+Eigen::VectorXd angular_vel(3), imagef(2), imgefd(2), error, angles(3), angles_derivatives(3), position(3), linear_vel(3);
 
 // Control gain
 double K = 1.0;
@@ -191,7 +189,7 @@ ros::Publisher control_output_pub_=nh_.advertise<std_msgs::Float32MultiArray>("i
 
 		// Update the local variables
 		VariablesandDerivatives(drone_pose, drone_velocity,angles,angles_derivatives,3);
-		VariablesandDerivatives(drone_pose, drone_velocity,position,linear_vel,0);
+		VariablesandDerivatives(drone_pose, drone_velocity, position, linear_vel,0);
 		//Compute the angular velocity
 		angular_vel = fromAngleDerivatives2AngularVelocity(angles_derivatives,angles);
 		// Compute the Jacobian matrices
@@ -206,17 +204,17 @@ ros::Publisher control_output_pub_=nh_.advertise<std_msgs::Float32MultiArray>("i
 		Jvps = PseudoInverse(Jv);
 
 		// Computes the derivatives of the image features
-		imgefd = Jv*linear_vel + Jw* angular_vel;
+		//imgefd = Jv*linear_vel + Jw* angular_vel;
 		// Assigning the virtual features to the eigen vector
 		imagef(0) = visual_features[0];
 		imagef(1) = visual_features[1];
 
 		// Takes the error in velocity (ex,ey,ez)
-		error = Jvps*(-K*imagef-imgefd);
+		error = Jvps*(-1*imagef-imgefd);
 
 		// Compute the IBVS control outputs
-		control_angles[0] = asin((mass*Ka/Thrust)*(error[0]/cos(drone_pose[3])));
-		control_angles[1] = asin((mass*Ka/Thrust)*error[1]);
+		control_angles[0] = asin((mass*Ka/Thrust)*(error(0)/cos(drone_pose[3])));
+		control_angles[1] = asin((mass*Ka/Thrust)*error(1));
 
 		// Insert the value of the control outputs in the ros message
 		msg.data.insert(msg.data.end(), control_angles.begin(), control_angles.end());
