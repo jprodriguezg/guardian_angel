@@ -151,6 +151,38 @@ Eigen::MatrixXd computeDrone2CameraJacobian(std::vector<double> drone2cameraVec)
 	return Jcd;
 }
 
+// Returns the min-max values for the asin function of mat.h [-1,1]
+double asin_boundaries(double input){
+
+	double output;
+	if (input >1)
+		output = 1.0;
+	if (input < -1)
+		output = -1.0;
+	return output;
+}
+
+std::vector<double> ComputeControlOuputs(double T, double m, double K, Eigen::VectorXd vel_error){
+
+	std::vector<double> output(2,0);
+
+	double aux_x = (m*K/T)*(vel_error(0)/cos(drone_pose[3]));
+	double aux_y = (m*K/T)*vel_error(1);
+
+
+	// Avoids values out of [-1,1]
+	aux_x = asin_boundaries(aux_x);
+	aux_y = asin_boundaries(aux_y);
+
+	output[0] = asin(aux_x);
+	output[1] = asin(aux_y);
+
+	return output;
+}
+
+
+
+// -------- Main --------------------
 int main(int argc, char** argv){
 
 ros::init(argc, argv, "ibvs_controller_node");
@@ -213,8 +245,7 @@ ros::Publisher control_output_pub_=nh_.advertise<std_msgs::Float32MultiArray>("i
 		error = Jvps*(-1*imagef-imgefd);
 
 		// Compute the IBVS control outputs
-		control_angles[0] = asin((mass*Ka/Thrust)*(error(0)/cos(drone_pose[3])));
-		control_angles[1] = asin((mass*Ka/Thrust)*error(1));
+		control_angles = ComputeControlOuputs(Thrust, mass, Ka, error);
 
 		// Insert the value of the control outputs in the ros message
 		msg.data.insert(msg.data.end(), control_angles.begin(), control_angles.end());
