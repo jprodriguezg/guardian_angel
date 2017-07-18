@@ -1,3 +1,3 @@
 # guardian_angel
 
-This repository includes the guardian angle project
+This repository includes the guardian angel project
