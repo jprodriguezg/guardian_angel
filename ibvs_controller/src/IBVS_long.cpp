@@ -4,7 +4,6 @@
 #include <math.h>
 #include <ros/ros.h>
 #include <std_msgs/Empty.h>
-#include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/MultiArrayDimension.h>
 #include <geometry_msgs/TwistStamped.h>
@@ -16,11 +15,12 @@
 
 // Some global variables
 std::vector<double> drone_velocity(6,0),drone_pose(6,0), visual_features(3,0), drone2cameraPose(3,0); // [u,v]
-double drone_thrust = 9.81; // Force equivalent to the gravity in an object of 1 kg
+double camera_depth = 0.0;
 
 
 // -------- Callbacks to retrieve topics information  --------------------
 void hasReceivedVisualFeatures(const geometry_msgs::PoseStamped::ConstPtr& msg){
+
 	visual_features[0] = msg->pose.position.x;
 	visual_features[1] = msg->pose.position.y;
 	visual_features[2] = msg->pose.position.z;
@@ -28,6 +28,7 @@ void hasReceivedVisualFeatures(const geometry_msgs::PoseStamped::ConstPtr& msg){
 }
 
 void hasReceivedDronePosition(const geometry_msgs::PoseStamped::ConstPtr& msg){
+
 	drone_pose[0] = msg->pose.position.x;
 	drone_pose[1] = msg->pose.position.y;
 	drone_pose[2] = msg->pose.position.z;
@@ -39,6 +40,7 @@ void hasReceivedDronePosition(const geometry_msgs::PoseStamped::ConstPtr& msg){
 
 
 void hasReceivedDroneVelocity(const geometry_msgs::TwistStamped::ConstPtr& msg){
+
 	drone_velocity[0] = msg->twist.linear.x;
 	drone_velocity[1] = msg->twist.linear.y;
 	drone_velocity[2] = msg->twist.linear.z;
@@ -49,14 +51,10 @@ void hasReceivedDroneVelocity(const geometry_msgs::TwistStamped::ConstPtr& msg){
 }
 
 void hasReceivedDrone2CameraPosition(const geometry_msgs::PointStamped::ConstPtr& msg){
-	drone2cameraPose[0] = 0.0; //msg->point.x;
-	drone2cameraPose[1] = 0.0; //msg->point.y;
-	drone2cameraPose[2] = 0.0; //msg->point.z;
-	return;
-}
 
-void hasDroneThrustForce(const std_msgs::Float32::ConstPtr& msg){
-	drone_thrust = msg->data;
+	drone2cameraPose[0] = msg->point.x;
+	drone2cameraPose[1] = msg->point.y;
+	drone2cameraPose[2] = msg->point.z;
 	return;
 }
 
@@ -71,6 +69,28 @@ void VariablesandDerivatives(std::vector<double> x, std::vector<double> xd, Eige
 		dvar(j) = xd[i];
 		j++;
 	}
+}
+
+Eigen::MatrixXd computeImageJacobian(std::vector<double> vf, std::vector<double> uav_pose){
+
+	Eigen::MatrixXd Ji(2,6);
+	double u = vf[1];
+	double v = vf[2];
+	double Z = uav_pose[3];
+	Ji(0,0) = -1/Z;
+	Ji(0,1) = 0.0;
+	Ji(0,2) = u/Z;
+	Ji(0,3) = u*v;
+	Ji(0,4) = -(1+ sqrt(u));
+	Ji(0,5) = v;
+	Ji(1,0) = 0;
+	Ji(1,1) = -1/Z;
+	Ji(1,2) = v/Z;
+	Ji(1,3) = (1 + sqrt(v));
+	Ji(1,4) = u*v;
+	Ji(1,5) = -u;
+
+	return Ji;
 }
 
 /* This functions makes the transformation between the derivatives of the euler angles and the angular velocities
@@ -111,39 +131,24 @@ Eigen::MatrixXd SkewSymmetricMatrix(std::vector<double> input_vec){
 	return S;
 }
 
-Eigen::MatrixXd ComputeLinearVelJacobian(std::vector<double> vf, double depth, double f){
-	Eigen::MatrixXd Jv(2,3);
+Eigen::MatrixXd computeDrone2CameraJacobian(std::vector<double> drone2cameraVec){
+	Eigen::MatrixXd Jcd(6,6);
 
-	double u = vf[0];
-	double v = vf[1];
+	// Skew symmetric of the vector from the drone to the camera
+	Eigen::MatrixXd Sdc = SkewSymmetricMatrix(drone2cameraVec)*-1;
 
-	Jv(0,0) = -f/depth;
-	Jv(0,1) = 0.0;
-	Jv(0,2) = u/depth;
-	Jv(1,0) = 0.0;
-	Jv(1,1) = -f/depth;
-	Jv(1,2) = v/depth;
-
-	return Jv;
-}
-
-Eigen::MatrixXd ComputeAngularVelJacobian(std::vector<double> vf, double depth, double f, std::vector<double> drone2cameraVec){
-	Eigen::MatrixXd Jw(2,3);
-
-	double px = drone2cameraVec[0];
-	double py = drone2cameraVec[1];
-	double pz = drone2cameraVec[2];
-	double u = vf[0];
-	double v = vf[1];
-
-	Jw(0,0) = (u*(py + v))/depth;
-	Jw(0,1) = pow (u,2)/f - (px*u)/depth + f - (f*pz)/depth;
-	Jw(0,2) = (f*py)/depth - v;
-	Jw(1,0) = pow(v,2)/f + (py*v)/depth + f + (f*pz)/depth;
-	Jw(1,1) = (u*v)/f - (px*v)/depth;
-	Jw(1,2) = u - (f*px)/depth;
-
-	return Jw;
+	// Rotation between the drone and the camera
+	// NOTE: This rotation was computed based on the orientations in the V-REP scene
+	Eigen::MatrixXd Rotationdc(3,3);
+	Rotationdc << 1.0, 0.0,	0.0,
+    				0.0, -1.0, 0.0,
+    				0.0, 0.0, -1.0;
+	// Filling the Jcd matrix
+	Jcd.topLeftCorner(3,3) = Eigen::MatrixXd::Identity(3, 3);
+	Jcd.bottomLeftCorner(3,3) = Eigen::MatrixXd::Zero(3,3);
+	Jcd.topRightCorner(3,3) = Sdc;
+	Jcd.bottomRightCorner(3,3) = Rotationdc;
+	return Jcd;
 }
 
 // Returns the min-max values for the asin function of mat.h [-1,1]
@@ -166,20 +171,13 @@ std::vector<double> ComputeControlOuputs(double T, double m, double K, Eigen::Ve
 
 
 	// Avoids values out of [-1,1]
-	//aux_x = asin_boundaries(aux_x);
-	//aux_y = asin_boundaries(aux_y);
+	aux_x = asin_boundaries(aux_x);
+	aux_y = asin_boundaries(aux_y);
 
 	output[0] = asin(aux_x);
 	output[1] = asin(aux_y);
 
 	return output;
-}
-
-
-void fillROSMultyarray(std_msgs::Float32MultiArray &msg, std::vector<double> data, ros::Publisher &publisher){
-	msg.data.insert(msg.data.end(), data.begin(), data.end());
-	publisher.publish(msg);
-	msg.data.clear();
 }
 
 
@@ -193,15 +191,15 @@ ros::NodeHandle nhp_("~");
 ros::Rate rate(20.0);
 
 // Initialize the publisher message
-std_msgs::Float32MultiArray msg_vf;
+std_msgs::Float32MultiArray msg;
 std::vector<double> control_angles(2,0);
-msg_vf.layout.dim.push_back(std_msgs::MultiArrayDimension());
-msg_vf.layout.dim[0].size = control_angles.size();
-msg_vf.layout.dim[0].stride = 1;
+msg.layout.dim.push_back(std_msgs::MultiArrayDimension());
+msg.layout.dim[0].size = control_angles.size();
+msg.layout.dim[0].stride = 1;
 
 
 // Intialize some local variables
-Eigen::MatrixXd Jv, Jw, Jvps;
+Eigen::MatrixXd Jcd, J, Ji, Jv, Jw, Jvps;
 Eigen::VectorXd angular_vel(3), imagef(2), imgefd(2), error, angles(3), angles_derivatives(3), position(3), linear_vel(3);
 
 // Control gain
@@ -209,24 +207,15 @@ double K = 1.0;
 // Visual gain
 double Ka = 1.0;
 // Quadrotor mass
-double mass = 1.0; // kg
-// Focal length
-double focal_length = 1.0; // m
-
-// ROS Subscribers and Publishers
+double mass = 1.0;
+// Current trusht force
+double Thrust =1.0;
+// Create Subscribers and Publishers
 ros::Subscriber visual_tracker_sub_=nh_.subscribe("visual_tracker", 10, hasReceivedVisualFeatures);
 ros::Subscriber vrep_drone_pose_sub_=nh_.subscribe("vrep_drone_pose", 10, hasReceivedDronePosition);
 ros::Subscriber vrep_drone2camera_pose_sub_=nh_.subscribe("vrep_drone2camera_pose", 10, hasReceivedDrone2CameraPosition);
 ros::Subscriber vrep_drone_velocity_sub_=nh_.subscribe("vrep_drone_velocity", 10, hasReceivedDroneVelocity);
-ros::Subscriber vrep_drone_thrust_sub_=nh_.subscribe("vrep_drone_thrust_force", 10, hasDroneThrustForce);
 ros::Publisher control_output_pub_=nh_.advertise<std_msgs::Float32MultiArray>("ibvs_control_output", 1);
-
-
-// Load simulation scene parameters
-// Quadrotor mass
-nhp_.getParam("quadrotor_mass",mass);
-// Camera focal length
-nhp_.getParam("camera_focal_length",focal_length);
 
 	while (ros::ok()){
 
@@ -236,9 +225,13 @@ nhp_.getParam("camera_focal_length",focal_length);
 		//Compute the angular velocity
 		angular_vel = fromAngleDerivatives2AngularVelocity(angles_derivatives,angles);
 		// Compute the Jacobian matrices
-		Jv= ComputeLinearVelJacobian(visual_features,drone_pose[2],focal_length);
-		Jw = ComputeAngularVelJacobian(visual_features,drone_pose[2],focal_length, drone2cameraPose);
+		Ji = computeImageJacobian(visual_features,drone_pose);
+		Jcd = computeDrone2CameraJacobian(drone2cameraPose);
+		J = Ji*Jcd;
 
+		// Take the velocity and angular part of the Jacobian (both dimension 2x3)
+		Jv = J.topLeftCorner(2,3);
+		Jw = J.topRightCorner(2,3);
 		// Computes the pseudo inverse of Jv with dimension 3x2
 		Jvps = PseudoInverse(Jv);
 
@@ -249,18 +242,17 @@ nhp_.getParam("camera_focal_length",focal_length);
 		imagef(1) = visual_features[1];
 
 		// Takes the error in velocity (ex,ey,ez)
-		error = Jvps*(-Ka*imagef-imgefd);
+		error = Jvps*(-1*imagef-imgefd);
 
 		// Compute the IBVS control outputs
-		control_angles = ComputeControlOuputs(drone_thrust, mass, Ka, error);
+		control_angles = ComputeControlOuputs(Thrust, mass, Ka, error);
 
-		fillROSMultyarray(msg_vf, control_angles,control_output_pub_);
 		// Insert the value of the control outputs in the ros message
-		//msg_vf.data.insert(msg_vf.data.end(), control_angles.begin(), control_angles.end());
+		msg.data.insert(msg.data.end(), control_angles.begin(), control_angles.end());
 		// Publish the data
-		//control_output_pub_.publish(msg_vf);
+		control_output_pub_.publish(msg);
 		// Clearing the data for the next iteration
-		//msg_vf.data.clear();
+		msg.data.clear();
    	ros::spinOnce(); // if you were to add a subscription into this application, and did not have ros::spinOnce() here, your callbacks would never get called.
     	rate.sleep();
     }
