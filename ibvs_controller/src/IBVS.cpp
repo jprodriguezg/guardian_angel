@@ -15,15 +15,15 @@
 # define PI 3.14159265358979323846
 
 // Some global variables
-std::vector<double> drone_velocity(6,0),drone_pose(6,0), visual_features(3,0), drone2cameraPose(3,0); // [u,v]
+Eigen::VectorXd imageft(2);
+std::vector<double> drone_velocity(6,0),drone_pose(6,0), drone2cameraPose(3,0); // [u,v]
 double drone_thrust = 9.81; // Force equivalent to the gravity in an object of 1 kg
 
 
 // -------- Callbacks to retrieve topics information  --------------------
 void hasReceivedVisualFeatures(const geometry_msgs::PoseStamped::ConstPtr& msg){
-	visual_features[0] = msg->pose.position.x;
-	visual_features[1] = msg->pose.position.y;
-	visual_features[2] = msg->pose.position.z;
+	imageft(0) = msg->pose.position.x;
+	imageft(1) = msg->pose.position.y;
   return;
 }
 
@@ -111,11 +111,11 @@ Eigen::MatrixXd SkewSymmetricMatrix(std::vector<double> input_vec){
 	return S;
 }
 
-Eigen::MatrixXd ComputeLinearVelJacobian(std::vector<double> vf, double depth, double f){
+Eigen::MatrixXd ComputeLinearVelJacobian(Eigen::VectorXd vf, double depth, double f){
 	Eigen::MatrixXd Jv(2,3);
 
-	double u = vf[0];
-	double v = vf[1];
+	double u = vf(0);
+	double v = vf(1);
 
 	Jv(0,0) = -f/depth;
 	Jv(0,1) = 0.0;
@@ -127,14 +127,14 @@ Eigen::MatrixXd ComputeLinearVelJacobian(std::vector<double> vf, double depth, d
 	return Jv;
 }
 
-Eigen::MatrixXd ComputeAngularVelJacobian(std::vector<double> vf, double depth, double f, std::vector<double> drone2cameraVec){
+Eigen::MatrixXd ComputeAngularVelJacobian(Eigen::VectorXd vf, double depth, double f, std::vector<double> drone2cameraVec){
 	Eigen::MatrixXd Jw(2,3);
 
 	double px = drone2cameraVec[0];
 	double py = drone2cameraVec[1];
 	double pz = drone2cameraVec[2];
-	double u = vf[0];
-	double v = vf[1];
+	double u = vf(0);
+	double v = vf(1);
 
 	Jw(0,0) = (u*(py + v))/depth;
 	Jw(0,1) = pow (u,2)/f - (px*u)/depth + f - (f*pz)/depth;
@@ -176,13 +176,25 @@ std::vector<double> ComputeControlOuputs(double T, double m, double K, Eigen::Ve
 }
 
 
-void fillROSMultyarray(std_msgs::Float32MultiArray &msg, std::vector<double> data, ros::Publisher &publisher){
+//// --------------- Publisher functions ----------------------
+void PublishROSMultyarray(std_msgs::Float32MultiArray &msg, std::vector<double> data, ros::Publisher &publisher){
 	msg.data.insert(msg.data.end(), data.begin(), data.end());
 	publisher.publish(msg);
 	msg.data.clear();
 }
 
-
+void PublishImageftVelocity(geometry_msgs::TwistStamped &msg, Eigen::VectorXd linear_vel, Eigen::VectorXd angular_vel, ros::Publisher &publisher){
+	msg.header.stamp = ros::Time::now();
+	msg.header.frame_id = "world_frame";
+	msg.twist.linear.x = linear_vel(0);
+	msg.twist.linear.y = linear_vel(1);
+	msg.twist.linear.z = 0.0;
+	msg.twist.angular.x = angular_vel(0);
+	msg.twist.angular.y = angular_vel(1);
+	msg.twist.angular.z = 0.0;
+	publisher.publish(msg);
+	//msg.data.clear();
+}
 
 // -------- Main --------------------
 int main(int argc, char** argv){
@@ -192,18 +204,26 @@ ros::NodeHandle nh_;
 ros::NodeHandle nhp_("~");
 ros::Rate rate(20.0);
 
-// Initialize the publisher message
-std_msgs::Float32MultiArray msg_vf;
-std::vector<double> control_angles(2,0);
-msg_vf.layout.dim.push_back(std_msgs::MultiArrayDimension());
-msg_vf.layout.dim[0].size = control_angles.size();
-msg_vf.layout.dim[0].stride = 1;
-
 
 // Intialize some local variables
 Eigen::MatrixXd Jv, Jw, Jvps;
-Eigen::VectorXd angular_vel(3), imagef(2), imgefd(2), error, angles(3), angles_derivatives(3), position(3), linear_vel(3);
+Eigen::VectorXd angular_vel(3), imageft(2), imgft_vel(2), imgft_linear_vel(2), imgft_angular_vel(2), ctr_error(3), angles(3), angles_derivatives(3), position(3), linear_vel(3);
+std::vector<double> control_angles(2,0), ctr_error_array(2,0);
 
+// Initialize the publisher message
+std_msgs::Float32MultiArray msg_ctr_output, msg_ctr_error;
+geometry_msgs::TwistStamped msg_imgft_vel;
+
+// Initialize MultyArray msgs
+msg_ctr_output.layout.dim.push_back(std_msgs::MultiArrayDimension());
+msg_ctr_output.layout.dim[0].size = control_angles.size();
+msg_ctr_output.layout.dim[0].stride = 1;
+
+msg_ctr_error.layout.dim.push_back(std_msgs::MultiArrayDimension());
+msg_ctr_error.layout.dim[0].size = ctr_error.size();
+msg_ctr_error.layout.dim[0].stride = 1;
+
+// Initialize control parameters
 // Control gain
 double K = 1.0;
 // Visual gain
@@ -220,6 +240,8 @@ ros::Subscriber vrep_drone2camera_pose_sub_=nh_.subscribe("vrep_drone2camera_pos
 ros::Subscriber vrep_drone_velocity_sub_=nh_.subscribe("vrep_drone_velocity", 10, hasReceivedDroneVelocity);
 ros::Subscriber vrep_drone_thrust_sub_=nh_.subscribe("vrep_drone_thrust_force", 10, hasDroneThrustForce);
 ros::Publisher control_output_pub_=nh_.advertise<std_msgs::Float32MultiArray>("ibvs_control_output", 1);
+ros::Publisher control_error_pub_=nh_.advertise<std_msgs::Float32MultiArray>("ibvs_control_error", 1);
+ros::Publisher imgft_vel_pub_=nh_.advertise<geometry_msgs::TwistStamped>("ibvs_image_features_vel", 10);
 
 
 // Load simulation scene parameters
@@ -236,31 +258,32 @@ nhp_.getParam("camera_focal_length",focal_length);
 		//Compute the angular velocity
 		angular_vel = fromAngleDerivatives2AngularVelocity(angles_derivatives,angles);
 		// Compute the Jacobian matrices
-		Jv= ComputeLinearVelJacobian(visual_features,drone_pose[2],focal_length);
-		Jw = ComputeAngularVelJacobian(visual_features,drone_pose[2],focal_length, drone2cameraPose);
+		Jv= ComputeLinearVelJacobian(imageft,drone_pose[2],focal_length);
+		Jw = ComputeAngularVelJacobian(imageft,drone_pose[2],focal_length, drone2cameraPose);
 
 		// Computes the pseudo inverse of Jv with dimension 3x2
 		Jvps = PseudoInverse(Jv);
 
 		// Computes the derivatives of the image features
-		imgefd = Jv*linear_vel + Jw* angular_vel;
-		// Assigning the virtual features to the eigen vector
-		imagef(0) = visual_features[0];
-		imagef(1) = visual_features[1];
+		imgft_linear_vel = Jv*linear_vel;
+		imgft_angular_vel = Jw* angular_vel;
+		imgft_vel = imgft_linear_vel + imgft_angular_vel;
 
 		// Takes the error in velocity (ex,ey,ez)
-		error = Jvps*(-Ka*imagef-imgefd);
+		ctr_error = Jvps*(-Ka*imageft-imgft_vel);
 
 		// Compute the IBVS control outputs
-		control_angles = ComputeControlOuputs(drone_thrust, mass, Ka, error);
+		control_angles = ComputeControlOuputs(drone_thrust, mass, Ka, ctr_error);
 
-		fillROSMultyarray(msg_vf, control_angles,control_output_pub_);
-		// Insert the value of the control outputs in the ros message
-		//msg_vf.data.insert(msg_vf.data.end(), control_angles.begin(), control_angles.end());
-		// Publish the data
-		//control_output_pub_.publish(msg_vf);
-		// Clearing the data for the next iteration
-		//msg_vf.data.clear();
+		// Publish the velocity error
+		ctr_error_array[0] = ctr_error(0);
+		ctr_error_array[1] = ctr_error(1);
+		PublishROSMultyarray(msg_ctr_error, ctr_error_array, control_error_pub_);
+		// Publish the contro outpus
+		PublishROSMultyarray(msg_ctr_output, control_angles,control_output_pub_);
+		// Publish the image feautres velocity components
+		PublishImageftVelocity(msg_imgft_vel, imgft_linear_vel, imgft_angular_vel, imgft_vel_pub_);
+
    	ros::spinOnce(); // if you were to add a subscription into this application, and did not have ros::spinOnce() here, your callbacks would never get called.
     	rate.sleep();
     }

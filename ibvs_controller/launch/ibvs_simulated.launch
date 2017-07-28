@@ -18,14 +18,20 @@
 
 	<!-- Launch the ibvs node -->
 	<node name="ibvs_controller_node" pkg="ibvs_controller" type="ibvs_controller_node" output="screen">
-		<remap from="visual_tracker"  to="/visp_auto_tracker/object_position"/>
-		<remap from="ibvs_control_output"  to="/ibvs_controller/control_output"/>
+      <remap from="ibvs_control_output"  to="/ibvs_controller/control_output"/>
+      <remap from="ibvs_control_error"  to="/ibvs_controller/control_error"/>
+      <remap from="ibvs_image_features_vel"  to="/ibvs_controller/image_features_vel"/>
+
+      <!-- Subscribers  -->
+      <remap from="visual_tracker"  to="/visp_auto_tracker/object_position"/>
 		<remap from="vrep_drone_pose"  to="/vrep/camera/pose"/>
       <remap from="vrep_drone_velocity"  to="/vrep/camera/cmd_vel"/>
       <remap from="vrep_drone2camera_pose"  to="/vrep/camera/position2drone"/>
 
+      <!-- Parameters  -->
       <rosparam>quadrotor_mass:  0,9306 </rosparam>
       <rosparam>camera_focal_length:  772.548 </rosparam>
+      <!--rosparam>camera_focal_length:  1 </rosparam-->
 	</node>
 
 </launch>
