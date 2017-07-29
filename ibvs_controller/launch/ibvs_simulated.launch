@@ -19,8 +19,11 @@
 	<!-- Launch the ibvs node -->
 	<node name="ibvs_controller_node" pkg="ibvs_controller" type="ibvs_controller_node" output="screen">
       <remap from="ibvs_control_output"  to="/ibvs_controller/control_output"/>
-      <remap from="ibvs_control_error"  to="/ibvs_controller/control_error"/>
-      <remap from="ibvs_image_features_vel"  to="/ibvs_controller/image_features_vel"/>
+      <remap from="ibvs_image_features_vel_comp"  to="/ibvs_controller/image_features/velocity_components"/>
+      <remap from="ibvs_image_features_vel"  to="/ibvs_controller/image_features/velocity"/>
+      <remap from="ibvs_desired_velocity"  to="/ibvs_controller/desired_velocity"/>
+      <remap from="ibvs_estimated_velocity"  to="/ibvs_controller/estimated_velocity"/>
+      <remap from="ibvs_velocity_error"  to="/ibvs_controller/velocity_error"/>
 
       <!-- Subscribers  -->
       <remap from="visual_tracker"  to="/visp_auto_tracker/object_position"/>

@@ -7,6 +7,7 @@
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/MultiArrayDimension.h>
+#include <geometry_msgs/Vector3Stamped.h>
 #include <geometry_msgs/TwistStamped.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <tf/transform_datatypes.h>
@@ -196,6 +197,17 @@ void PublishImageftVelocity(geometry_msgs::TwistStamped &msg, Eigen::VectorXd li
 	//msg.data.clear();
 }
 
+void PublishROSVectorStamped(geometry_msgs::Vector3Stamped &msg, Eigen::VectorXd vector , ros::Publisher &publisher){
+	msg.header.stamp = ros::Time::now();
+	msg.header.frame_id = "world_frame";
+	msg.vector.x = vector(0);
+	msg.vector.y = vector(1);
+		if(vector.size()>2)
+			msg.vector.z = vector(2);
+	publisher.publish(msg);
+}
+
+
 // -------- Main --------------------
 int main(int argc, char** argv){
 
@@ -207,21 +219,18 @@ ros::Rate rate(20.0);
 
 // Intialize some local variables
 Eigen::MatrixXd Jv, Jw, Jvps;
-Eigen::VectorXd angular_vel(3), imageft(2), imgft_vel(2), imgft_linear_vel(2), imgft_angular_vel(2), ctr_error(3), angles(3), angles_derivatives(3), position(3), linear_vel(3);
-std::vector<double> control_angles(2,0), ctr_error_array(2,0);
+Eigen::VectorXd angular_vel(3), imageft(2), imgft_vel(2), imgft_linear_vel(2), imgft_angular_vel(2), vel_error(3), angles(3), angles_derivatives(3), position(3), linear_vel(3), estimated_vel(3), desired_vel(3);
+std::vector<double> control_angles(2,0), vel_error_array(2,0);
 
 // Initialize the publisher message
-std_msgs::Float32MultiArray msg_ctr_output, msg_ctr_error;
-geometry_msgs::TwistStamped msg_imgft_vel;
+std_msgs::Float32MultiArray msg_ctr_output;
+geometry_msgs::TwistStamped msg_imgft_vel_comp;
+geometry_msgs::Vector3Stamped msg_estimated_vel, msg_desired_vel, msg_imft_vel, msg_vel_error;
 
 // Initialize MultyArray msgs
 msg_ctr_output.layout.dim.push_back(std_msgs::MultiArrayDimension());
 msg_ctr_output.layout.dim[0].size = control_angles.size();
 msg_ctr_output.layout.dim[0].stride = 1;
-
-msg_ctr_error.layout.dim.push_back(std_msgs::MultiArrayDimension());
-msg_ctr_error.layout.dim[0].size = ctr_error.size();
-msg_ctr_error.layout.dim[0].stride = 1;
 
 // Initialize control parameters
 // Control gain
@@ -240,8 +249,11 @@ ros::Subscriber vrep_drone2camera_pose_sub_=nh_.subscribe("vrep_drone2camera_pos
 ros::Subscriber vrep_drone_velocity_sub_=nh_.subscribe("vrep_drone_velocity", 10, hasReceivedDroneVelocity);
 ros::Subscriber vrep_drone_thrust_sub_=nh_.subscribe("vrep_drone_thrust_force", 10, hasDroneThrustForce);
 ros::Publisher control_output_pub_=nh_.advertise<std_msgs::Float32MultiArray>("ibvs_control_output", 1);
-ros::Publisher control_error_pub_=nh_.advertise<std_msgs::Float32MultiArray>("ibvs_control_error", 1);
-ros::Publisher imgft_vel_pub_=nh_.advertise<geometry_msgs::TwistStamped>("ibvs_image_features_vel", 10);
+ros::Publisher imgft_vel_comp_pub_=nh_.advertise<geometry_msgs::TwistStamped>("ibvs_image_features_vel_comp", 1);
+ros::Publisher imgft_vel_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_image_features_vel", 1);
+ros::Publisher desired_vel_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_desired_velocity", 1);
+ros::Publisher estimate_vel_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_estimated_velocity", 1);
+ros::Publisher velocity_error_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_velocity_error", 1);
 
 
 // Load simulation scene parameters
@@ -269,20 +281,30 @@ nhp_.getParam("camera_focal_length",focal_length);
 		imgft_angular_vel = Jw* angular_vel;
 		imgft_vel = imgft_linear_vel + imgft_angular_vel;
 
+
+		// Estimated linear velocity
+		estimated_vel = Jvps*(imgft_vel - Jw*angular_vel);
+		// Desired linear velocity
+		desired_vel = Jvps*(-K*imageft - Jw*angular_vel);
 		// Takes the error in velocity (ex,ey,ez)
-		ctr_error = Jvps*(-Ka*imageft-imgft_vel);
-
+		//vel_error = Jvps*(-Ka*imageft-imgft_vel);
+		vel_error = desired_vel-estimated_vel;
 		// Compute the IBVS control outputs
-		control_angles = ComputeControlOuputs(drone_thrust, mass, Ka, ctr_error);
+		control_angles = ComputeControlOuputs(drone_thrust, mass, Ka, vel_error);
 
+
+		// Publish estimated velocity
+		PublishROSVectorStamped(msg_estimated_vel, estimated_vel, estimate_vel_pub_);
+		// Publish desired velocity
+		PublishROSVectorStamped(msg_desired_vel, desired_vel, desired_vel_pub_);
 		// Publish the velocity error
-		ctr_error_array[0] = ctr_error(0);
-		ctr_error_array[1] = ctr_error(1);
-		PublishROSMultyarray(msg_ctr_error, ctr_error_array, control_error_pub_);
-		// Publish the contro outpus
+		PublishROSVectorStamped(msg_vel_error, vel_error, velocity_error_pub_);
+		// Publish the comple image features velocity
+		PublishROSVectorStamped(msg_imft_vel, imgft_vel, imgft_vel_pub_);
+		// Publish the image features velocity components
+		PublishImageftVelocity(msg_imgft_vel_comp, imgft_linear_vel, imgft_angular_vel, imgft_vel_comp_pub_);
+		// Publish the control outputs
 		PublishROSMultyarray(msg_ctr_output, control_angles,control_output_pub_);
-		// Publish the image feautres velocity components
-		PublishImageftVelocity(msg_imgft_vel, imgft_linear_vel, imgft_angular_vel, imgft_vel_pub_);
 
    	ros::spinOnce(); // if you were to add a subscription into this application, and did not have ros::spinOnce() here, your callbacks would never get called.
     	rate.sleep();
