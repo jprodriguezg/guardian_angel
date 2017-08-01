@@ -16,7 +16,7 @@
 # define PI 3.14159265358979323846
 
 // Some global variables
-Eigen::VectorXd imageft(2);
+Eigen::VectorXd imageft(3);
 std::vector<double> drone_velocity(6,0),drone_pose(6,0), drone2cameraPose(3,0); // [u,v]
 double drone_thrust = 9.81; // Force equivalent to the gravity in an object of 1 kg
 
@@ -25,6 +25,8 @@ double drone_thrust = 9.81; // Force equivalent to the gravity in an object of 1
 void hasReceivedVisualFeatures(const geometry_msgs::PoseStamped::ConstPtr& msg){
 	imageft(0) = msg->pose.position.x;
 	imageft(1) = msg->pose.position.y;
+	imageft(2) = msg->pose.position.z;
+	//std::cout << msg->pose.position.x << " , " << msg->pose.position.y <<  std::endl;
   return;
 }
 
@@ -228,7 +230,7 @@ void PublishROSVectorStamped(geometry_msgs::Vector3Stamped &msg, Eigen::VectorXd
 // -------- Main --------------------
 int main(int argc, char** argv){
 
-ros::init(argc, argv, "ibvs_controller_node");
+ros::init(argc, argv, "image_position_control_node");
 ros::NodeHandle nh_;
 ros::NodeHandle nhp_("~");
 ros::Rate rate(20.0);
@@ -236,28 +238,11 @@ ros::Rate rate(20.0);
 
 // Intialize some local variables
 Eigen::MatrixXd Jv, Jw, Jvps;
-Eigen::VectorXd angular_vel(3), imageft(2), imgft_vel(2), imgft_linear_vel(2), imgft_angular_vel(2), vel_error(3), angles(3), angles_derivatives(3), position(3), linear_vel(3), estimated_vel(3), desired_vel(3);
-std::vector<double> control_angles(2,0), vel_error_array(2,0);
+Eigen::VectorXd scaled_imageft(3), rot_imageft(3);
 
 // Initialize the publisher message
-std_msgs::Float32MultiArray msg_ctr_output;
-geometry_msgs::TwistStamped msg_imgft_vel_comp;
-geometry_msgs::Vector3Stamped msg_estimated_vel, msg_desired_vel, msg_imft_vel, msg_vel_error;
+geometry_msgs::Vector3Stamped msg_rot_imft;
 
-// Initialize MultyArray msgs
-msg_ctr_output.layout.dim.push_back(std_msgs::MultiArrayDimension());
-msg_ctr_output.layout.dim[0].size = control_angles.size();
-msg_ctr_output.layout.dim[0].stride = 1;
-
-// Initialize control parameters
-// Control gain
-double K = 1.0;
-// Visual gain
-double Ka = 1.0;
-// Quadrotor mass
-double mass = 1.0; // kg
-// Focal length
-double focal_length = 1.0; // m
 
 // ROS Subscribers and Publishers
 ros::Subscriber visual_tracker_sub_=nh_.subscribe("visual_tracker", 10, hasReceivedVisualFeatures);
@@ -265,67 +250,29 @@ ros::Subscriber vrep_drone_pose_sub_=nh_.subscribe("vrep_drone_pose", 10, hasRec
 ros::Subscriber vrep_drone2camera_pose_sub_=nh_.subscribe("vrep_drone2camera_pose", 10, hasReceivedDrone2CameraPosition);
 ros::Subscriber vrep_drone_velocity_sub_=nh_.subscribe("vrep_drone_velocity", 10, hasReceivedDroneVelocity);
 ros::Subscriber vrep_drone_thrust_sub_=nh_.subscribe("vrep_drone_thrust_force", 10, hasDroneThrustForce);
-ros::Publisher control_output_pub_=nh_.advertise<std_msgs::Float32MultiArray>("ibvs_control_output", 1);
-ros::Publisher imgft_vel_comp_pub_=nh_.advertise<geometry_msgs::TwistStamped>("ibvs_image_features_vel_comp", 1);
-ros::Publisher imgft_vel_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_image_features_vel", 1);
-ros::Publisher desired_vel_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_desired_velocity", 1);
-ros::Publisher estimate_vel_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_estimated_velocity", 1);
-ros::Publisher velocity_error_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_velocity_error", 1);
+ros::Publisher rot_imgft_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("ibvs_image_features_rot", 1);
+
+double Sx, Sy;
+// X axis Scale
+nhp_.getParam("Sx",Sx);
+// Y axis scale
+nhp_.getParam("Sy",Sy);
 
 
-// Load simulation scene parameters
-// Quadrotor mass
-nhp_.getParam("quadrotor_mass",mass);
-// Camera focal length
-nhp_.getParam("camera_focal_length",focal_length);
-// IBVS gain
-nhp_.getParam("K",K);
-// Velocity gain
-nhp_.getParam("Ka",Ka);
+// Rotation matrix
+Eigen::MatrixXd R(3,3);
+R << 0.0, -1.0, 0.0,
+ -1.0, 0.0, 0.0,
+ 0.0, 0.0, -1.0;
+
 	while (ros::ok()){
 
-		// Update the local variables
-		VariablesandDerivatives(drone_pose, drone_velocity,angles,angles_derivatives,3);
-		VariablesandDerivatives(drone_pose, drone_velocity, position, linear_vel,0);
-		//Compute the angular velocity
-		angular_vel = fromAngleDerivatives2AngularVelocity(angles_derivatives,angles);
-		// Compute the Jacobian matrices
-		Jv= ComputeLinearVelJacobian(imageft,drone_pose[2],focal_length);
-		Jw = ComputeAngularVelJacobian(imageft,drone_pose[2],focal_length, drone2cameraPose);
-
-		// Computes the pseudo inverse of Jv with dimension 3//x2
-		//Jvps = PseudoInverse(Jv);
-		Jvps = JvPseudoInverse(imageft,drone_pose[2],focal_length);
-
-		// Computes the derivatives of the image features
-		imgft_linear_vel = Jv*linear_vel;
-		imgft_angular_vel = Jw* angular_vel;
-		imgft_vel = imgft_linear_vel; //+ imgft_angular_vel;
-
-
-		// Estimated linear velocity
-		estimated_vel = Jvps*imgft_vel; //(imgft_vel - Jw*angular_vel);
-		// Desired linear velocity
-		desired_vel = Jvps*-K*imageft;// (-K*imageft - Jw*angular_vel);
-		// Takes the error in velocity (ex,ey,ez)
-		//vel_error = Jvps*(-Ka*imageft-imgft_vel);
-		vel_error = desired_vel-estimated_vel;
-		// Compute the IBVS control outputs
-		control_angles = ComputeControlOuputs(drone_thrust, mass, Ka, vel_error);
-
-
-		// Publish estimated velocity
-		PublishROSVectorStamped(msg_estimated_vel, estimated_vel, estimate_vel_pub_);
-		// Publish desired velocity
-		PublishROSVectorStamped(msg_desired_vel, desired_vel, desired_vel_pub_);
-		// Publish the velocity error
-		PublishROSVectorStamped(msg_vel_error, vel_error, velocity_error_pub_);
-		// Publish the comple image features velocity
-		PublishROSVectorStamped(msg_imft_vel, imgft_vel, imgft_vel_pub_);
-		// Publish the image features velocity components
-		PublishImageftVelocity(msg_imgft_vel_comp, imgft_linear_vel, imgft_angular_vel, imgft_vel_comp_pub_);
-		// Publish the control outputs
-		PublishROSMultyarray(msg_ctr_output, control_angles,control_output_pub_);
+		scaled_imageft(0) = Sx*imageft(0);
+		scaled_imageft(1) = Sy*imageft(1);
+		rot_imageft = R*scaled_imageft;
+		//std::cout << rot_imageft(0)<< " , " << rot_imageft(1)<<  std::endl;
+		//std::cout << imageft(0)<< " , " << imageft(1)<<  std::endl;
+		PublishROSVectorStamped(msg_rot_imft, rot_imageft, rot_imgft_pub_);
 
    	ros::spinOnce(); // if you were to add a subscription into this application, and did not have ros::spinOnce() here, your callbacks would never get called.
     	rate.sleep();
