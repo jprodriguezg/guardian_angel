@@ -12,9 +12,9 @@
 		<remap from="/visp_auto_tracker/image_raw" to="/vrep/vision_sensor"/>
   	</node>
 
-   <node pkg="image_view" type="image_view" name="image_view" respawn="false" output="screen">
+   <!--node pkg="image_view" type="image_view" name="image_view" respawn="false" output="screen">
 		<remap from="image" to="/vrep/vision_sensor"/>
-  	</node>
+  	</node-->
 
 	<!-- Launch the ibvs node -->
 	<node name="image_position_control_node" pkg="ibvs_controller" type="image_position_control_node" output="screen">
