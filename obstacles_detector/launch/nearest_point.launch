@@ -1,0 +1,38 @@
+<launch>
+
+	<node pkg="obstacles_detector" type="nearest_point_node" name="nearest_point_node" output="screen">
+		
+		<remap from="input_image" to="/vrep/vision_sensor"/>
+		<remap from="image_segmented" to="/detector/image_segmented_raw"/>
+		<remap from="image_nearest_point" to="/detector/image_nearest_point_raw"/>
+		<remap from="camera_info" to="/vrep/camera_info"/>
+		<remap from="drone_height" to="/vrep/quadrotor/height"/>
+		<remap from="QR_position_camera_frame" to="/detector/camera/QR_position"/>
+		<remap from="QR_position_drone_frame" to="/detector/drone/QR_position"/>
+		<remap from="obstacle_position_camera_frame" to="/detector/camera/obstacle_position"/>
+		<remap from="obstacle_position_drone_frame" to="/detector/drone/obstacle_position"/>
+		<remap from="obstacle_position_QR_frame" to="/detector/QR/obstacle_position"/>
+		
+		<param name="iLowH" value="0"/>
+		<param name="iHighH" value="0"/>
+		<param name="iLowS" value="50"/>
+		<param name="iHighS" value="255"/>
+		<param name="iLowV" value="190"/>
+		<param name="iHighV" value="255"/>
+		<param name="scale_u" value="0.703"/>
+		<param name="scale_v" value="0.703"/>
+	</node>
+
+ 	<!--node name="image_view_vrep" pkg="image_view" type="image_view" >
+     	<remap from="image" to="/vrep/vision_sensor"/>
+ 	</node-->
+
+	<node name="image_view_segmentation" pkg="image_view" type="image_view" >
+     	<remap from="image" to="/detector/image_segmented_raw"/>
+ 	</node>
+
+		<node name="image_view_nearest_points" pkg="image_view" type="image_view" >
+     	<remap from="image" to="/detector/image_nearest_point_raw"/>
+ 	</node>
+
+</launch>
