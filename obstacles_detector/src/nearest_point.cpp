@@ -83,31 +83,6 @@ std::vector<int> find_nearest_point(cv::Mat image,std::vector<int> target){
 			count_distance++;
 		}
 	}
-	// Columns for
-	/*
-	for(int column = 0; column < image.cols; column++){
-	  // Rows for
-	  for(int row = 0; row < image.rows; row++){
-		// Check if the pixel is white
-		if (image.at<uchar>(row,column) == 255){
-			// Check if the new distance is smaller than the previous
-			if (pixeldistance(column, row,target) <= prev_distance){
-				nearest_point[0] =column;
-				nearest_point[1] =row;
-				prev_distance = pixeldistance(column, row,target);
-				count_distance++;
-			}
-			count_white++;
-		}
-		else
-			count_black++;	
-	  }
-	}*/
-
-	//std::cout <<"Target: "<<target[0]<<", "<<target[1]<<std::endl;
-	//std::cout <<"Pixel : "<<nearest_point[0]<<", "<<nearest_point[1]<<"  Value :"<<(int)image.at<uchar>(nearest_point[0], nearest_point[1])<<std::endl;
-	//std::cout <<"Shortest distance: "<<prev_distance<<"  count distance :"<<count_distance<<std::endl;
-	//std::cout <<"Number of white pixels: "<<count_white<<"  Number of black pixels: "<<count_white<<count_distance<<"  No pixels :"<<count_white+count_black<<std::endl;
 	return nearest_point;
 }
 
@@ -252,26 +227,18 @@ int main(int argc, char** argv){
 	  		//cv::waitKey(3);
 
 			nearest_obstacle = find_nearest_point(imgThresholded,QR_code_poistion);		
-			//std::cout <<"Nearest point,  u: "<<nearest_obstacle[0]<<"  v: "<<nearest_obstacle[1]<<std::endl; 
-			//std::cout <<"Centroid,  u: "<<(int)QR_centroid.get_u()<<"  v: "<<(int)QR_centroid.get_v()<<std::endl; 
+
 			cv::circle(frame,cv::Point(QR_code_poistion[0],QR_code_poistion[1]),7,cv::Scalar(255,0,0),4);
 			cv::circle(frame,cv::Point(nearest_obstacle[0],nearest_obstacle[1]),7,cv::Scalar(0,255,0),4);
 
 			QR_code_camera_position = compute_camera_position(camera_info.K[0], camera_info.K[2], camera_info.K[5], pixel_scale, drone_height, QR_code_poistion);
 			nearest_obstacle_camera_position = compute_camera_position(camera_info.K[0], camera_info.K[2], camera_info.K[5], pixel_scale, drone_height, nearest_obstacle);
 
-
-			//std::cout <<"QR camera,  x: "<<QR_code_camera_position[0]<<"  y: "<<QR_code_camera_position[1]<<std::endl; 
-			//std::cout <<"Obstacle ground,  x: "<<nearest_obstacle_camera_position[0]<<"  y: "<<nearest_obstacle_camera_position[1]<<std::endl; 
-
 			QR_code_drone_position = camera2drone(R,QR_code_camera_position);
 			nearest_obstacle_drone_position = camera2drone(R,nearest_obstacle_camera_position);
 
-			//std::cout <<"QR drone,  x: "<<QR_code_drone_position[0]<<"  y: "<<QR_code_drone_position[1]<<std::endl; 
-			//std::cout <<"Obstacle ground,  x: "<<nearest_obstacle_camera_position[0]<<"  y: "<<nearest_obstacle_camera_position[1]<<std::endl; 
-
+	
 			nearest_obstacle_QR_position = obstacle2QR(nearest_obstacle_drone_position,QR_code_drone_position);
-			//std::cout <<"Obtacle QR,  x: "<<nearest_obstacle_QR_position[0]<<"  y: "<<nearest_obstacle_QR_position[1]<<std::endl;
 
 			// Publish the images	
 			image_msg.encoding = sensor_msgs::image_encodings::MONO8;
@@ -289,8 +256,6 @@ int main(int argc, char** argv){
 			PublishROSVectorStamped(msg_point, nearest_obstacle_drone_position, obstacle_position_drone, "drone_frame");
 			PublishROSVectorStamped(msg_point, nearest_obstacle_QR_position, obstacle_position_QR, "QR_frame");
 			
-	
-
 		}
    		ros::spinOnce(); 
     }
