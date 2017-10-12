@@ -1,6 +1,7 @@
 
 #include <iostream>
 #include <stdlib.h>  
+#include <math.h> 
  
 #include <Eigen/Dense>
 #include <ros/ros.h>
@@ -16,6 +17,10 @@
 #include <visp3/detection/vpDetectorDataMatrixCode.h>
 #include <visp3/detection/vpDetectorQRCode.h>
 #include <visp3/core/vpImageConvert.h>
+#include <visp3/io/vpImageIo.h>
+#include <visp3/core/vpPixelMeterConversion.h>
+#include <visp3/vision/vpPose.h>
+
 
 
 // Global variables
@@ -113,12 +118,55 @@ std::vector<double> camera2drone(Eigen::MatrixXd R, std::vector<double> point2D)
 	return new_point; 
 }
 // Find the position of the obstacle w.r.t the frame of the QR code (2D translation)
-std::vector<double> obstacle2QR(std::vector<double> obstacle, std::vector<double> QR){
-	std::vector<double> output(2,0);
-	output[0] = obstacle[0]-QR[0];
-	output[1] = obstacle[1]-QR[1];
+std::vector<double> obstacle2QR(std::vector<double> obstacle, std::vector<double> QR, double yaw){
+	std::vector<double> output(2,0), trans(2,0);
+
+	// First translate the position of the obstacle to the QR frame
+	trans[0] = obstacle[0]-QR[0];
+	trans[1] = obstacle[1]-QR[1];
+	
+	// Apply the rotation around z
+	output[0] = cos(yaw)*trans[0] + sin(yaw)*trans[1];
+	output[1] = -sin(yaw)*trans[0] + cos(yaw)*trans[1];
+	
 	return output;
 }
+
+
+void computePose(std::vector<vpPoint> &point, const std::vector<vpImagePoint> &ip,
+                 const vpCameraParameters &cam, bool init, vpHomogeneousMatrix &cMo)
+{
+  vpPose pose;     double x=0, y=0;
+  for (unsigned int i=0; i < point.size(); i ++) {
+    vpPixelMeterConversion::convertPoint(cam, ip[i], x, y);
+    point[i].set_x(x);
+    point[i].set_y(y);
+    pose.addPoint(point[i]);
+  }
+  if (init == true) {
+    vpHomogeneousMatrix cMo_dem;
+    vpHomogeneousMatrix cMo_lag;
+    pose.computePose(vpPose::DEMENTHON, cMo_dem);
+    pose.computePose(vpPose::LAGRANGE, cMo_lag);
+    double residual_dem = pose.computeResidual(cMo_dem);
+    double residual_lag = pose.computeResidual(cMo_lag);
+    if (residual_dem < residual_lag)
+      cMo = cMo_dem;
+    else
+      cMo = cMo_lag;
+  }
+  pose.computePose(vpPose::VIRTUAL_VS, cMo);
+}
+
+double TakeYawAngle(vpQuaternionVector q){
+	double yaw;
+	
+	//double siny = +2.0 * (q.w() * q.z() + q.x() * q.y());
+	double siny = +2.0 * (q[3] * q[2] + q[0] * q[1]);
+	double cosy = +1.0 - 2.0 * (q[1] * q[1] + q[2] * q[2]);  
+	return yaw = -1.0*atan2(siny, cosy);
+}
+
 // -------- Main --------------------
 int main(int argc, char** argv){
 
@@ -134,11 +182,12 @@ int main(int argc, char** argv){
 	image_transport::Publisher pub_nearest_point_image = it.advertise("image_nearest_point", 1);
 	ros::Subscriber sub_camera_info = nh_.subscribe("camera_info", 5, camera_infoCallback);
 	ros::Subscriber sub_drone_height = nh_.subscribe("drone_height", 5, hasDroneHeight);
-	ros::Publisher QR_position_camera =nh_.advertise<geometry_msgs::Vector3Stamped>("QR_position_camera_frame", 1);
-	ros::Publisher QR_position_drone =nh_.advertise<geometry_msgs::Vector3Stamped>("QR_position_drone_frame", 1);
-	ros::Publisher obstacle_position_camera =nh_.advertise<geometry_msgs::Vector3Stamped>("obstacle_position_camera_frame", 1);
-	ros::Publisher obstacle_position_drone =nh_.advertise<geometry_msgs::Vector3Stamped>("obstacle_position_drone_frame", 1);
-	ros::Publisher obstacle_position_QR =nh_.advertise<geometry_msgs::Vector3Stamped>("obstacle_position_QR_frame", 1);
+	ros::Publisher QR_position_camera_pub =nh_.advertise<geometry_msgs::Vector3Stamped>("QR_position_camera_frame", 1);
+	ros::Publisher QR_position_drone_pub =nh_.advertise<geometry_msgs::Vector3Stamped>("QR_position_drone_frame", 1);
+	ros::Publisher obstacle_position_camera_pub =nh_.advertise<geometry_msgs::Vector3Stamped>("obstacle_position_camera_frame", 1);
+	ros::Publisher obstacle_position_drone_pub =nh_.advertise<geometry_msgs::Vector3Stamped>("obstacle_position_drone_frame", 1);
+	ros::Publisher obstacle_position_QR_pub =nh_.advertise<geometry_msgs::Vector3Stamped>("obstacle_position_QR_frame", 1);
+	ros::Publisher QR_yaw_pub =nh_.advertise<std_msgs::Float32>("QR_orientation", 1);
 	
 	//  Script variables
 	cv_bridge::CvImage image_msg;
@@ -151,7 +200,20 @@ int main(int argc, char** argv){
 	vpImage<unsigned char> vp_Image;
 	bool status; 
 	vpImagePoint QR_centroid;
+	std::vector<vpImagePoint> QR_poligon_points;
+	vpHomogeneousMatrix cMo_QR;
+
+	// Camera parameters should be adapted to your camera
+    vpCameraParameters cam(772.548, 772.548, 640, 480);
+    // 3D model of the QRcode: here we consider a 25cm by 25cm QRcode
+    std::vector<vpPoint> points_QR_code;
+    points_QR_code.push_back( vpPoint(-0.125, -0.125, 0) ); // QCcode point 0 3D coordinates in plane Z=0
+    points_QR_code.push_back( vpPoint( 0.125, -0.125, 0) ); // QCcode point 1 3D coordinates in plane Z=0
+    points_QR_code.push_back( vpPoint( 0.125,  0.125, 0) ); // QCcode point 2 3D coordinates in plane Z=0
+    points_QR_code.push_back( vpPoint(-0.125,  0.125, 0) ); // QCcode point 3 3D coordinates in plane Z=0
+
 	double focal_length = 700.50;
+	double yaw_angle = 0.0;
 	// position of QR code and nearest point in pixels
 	std::vector<int>QR_code_poistion(2,0);
 	std::vector<int>nearest_obstacle(2,0);
@@ -175,6 +237,8 @@ int main(int argc, char** argv){
 
 	// Message to publish the points
 	geometry_msgs::Vector3Stamped msg_point;
+	std_msgs::Float32 msg_yaw;
+
 	while (ros::ok()){
 
 		// Load the color parameters
@@ -200,12 +264,17 @@ int main(int argc, char** argv){
 			// Load the position of the QR code
 			if (status){
 				//std::cout<<" Detecto algo " << std::endl;
-				for(size_t i=0; i < detector.getNbObjects(); i++)
+				for(size_t i=0; i < detector.getNbObjects(); i++){
 					QR_centroid = detector.getCog(i);
+					QR_poligon_points = detector.getPolygon(i);
+				}
 				// Get column index
 				QR_code_poistion[0]=(int)QR_centroid.get_u();
 				// Get row index
 				QR_code_poistion[1]=(int)QR_centroid.get_v();
+
+				computePose(points_QR_code, QR_poligon_points, cam, true, cMo_QR); // resulting pose is available in cMo var
+				yaw_angle = TakeYawAngle(vpQuaternionVector(cMo_QR.getRotationMatrix()));
 			}
 	
 			
@@ -237,8 +306,7 @@ int main(int argc, char** argv){
 			QR_code_drone_position = camera2drone(R,QR_code_camera_position);
 			nearest_obstacle_drone_position = camera2drone(R,nearest_obstacle_camera_position);
 
-	
-			nearest_obstacle_QR_position = obstacle2QR(nearest_obstacle_drone_position,QR_code_drone_position);
+			nearest_obstacle_QR_position = obstacle2QR(nearest_obstacle_drone_position,QR_code_drone_position, yaw_angle);
 
 			// Publish the images	
 			image_msg.encoding = sensor_msgs::image_encodings::MONO8;
@@ -250,12 +318,15 @@ int main(int argc, char** argv){
 			pub_nearest_point_image.publish(image_msg.toImageMsg());
 
 			// Publish the positions computed
-			PublishROSVectorStamped(msg_point, QR_code_camera_position, QR_position_camera, "camera_frame");
-			PublishROSVectorStamped(msg_point, nearest_obstacle_camera_position, obstacle_position_camera, "camera_frame");
-			PublishROSVectorStamped(msg_point, QR_code_drone_position, QR_position_drone, "drone_frame");
-			PublishROSVectorStamped(msg_point, nearest_obstacle_drone_position, obstacle_position_drone, "drone_frame");
-			PublishROSVectorStamped(msg_point, nearest_obstacle_QR_position, obstacle_position_QR, "QR_frame");
+			PublishROSVectorStamped(msg_point, QR_code_camera_position, QR_position_camera_pub, "camera_frame");
+			PublishROSVectorStamped(msg_point, nearest_obstacle_camera_position, obstacle_position_camera_pub, "camera_frame");
+			PublishROSVectorStamped(msg_point, QR_code_drone_position, QR_position_drone_pub, "drone_frame");
+			PublishROSVectorStamped(msg_point, nearest_obstacle_drone_position, obstacle_position_drone_pub, "drone_frame");
+			PublishROSVectorStamped(msg_point, nearest_obstacle_QR_position, obstacle_position_QR_pub, "QR_frame");
 			
+			// Publish the yaw angle of the QR code
+			msg_yaw.data = yaw_angle;
+			QR_yaw_pub.publish(msg_yaw);
 		}
    		ros::spinOnce(); 
     }
