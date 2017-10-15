@@ -29,4 +29,4 @@ add_executable(pbvs_control_node src/pbvs_control.cpp)
 # add_executable(${PROJECT_NAME}_node src/IBVS_controller_node.cpp)
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(pbvs_control_node ${catkin_LIBRARIES})
+target_link_libraries(pbvs_position_control_node ${catkin_LIBRARIES})
