@@ -17,7 +17,7 @@
   	</node-->
 
 	<!-- Launch the ibvs node -->
-	<node name="image_position_control_node" pkg="ibvs_controller" type="image_position_control_node" output="screen">
+	<node name="image_position_control_node" pkg="ga_pbvs" type="image_position_control_node" output="screen">
       <remap from="ibvs_image_features_rot"  to="/ibvs_controller/position_rot"/>
       <!-- Subscribers  -->
       <remap from="visual_tracker"  to="/visp_auto_tracker/object_position"/>

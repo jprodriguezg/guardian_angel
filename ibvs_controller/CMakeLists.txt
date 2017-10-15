@@ -43,9 +43,9 @@ include_directories(${catkin_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIR})
 
 ## Declare a C++ executable
 add_executable(ibvs_controller_node src/IBVS.cpp)
-add_executable(image_position_control_node src/image_position_control.cpp)
+#add_executable(image_position_control_node src/image_position_control.cpp)
 # add_executable(${PROJECT_NAME}_node src/IBVS_controller_node.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(ibvs_controller_node ${catkin_LIBRARIES})
-target_link_libraries(image_position_control_node ${catkin_LIBRARIES})
+#target_link_libraries(image_position_control_node ${catkin_LIBRARIES})

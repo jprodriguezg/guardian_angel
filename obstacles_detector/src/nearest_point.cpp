@@ -292,7 +292,7 @@ int main(int argc, char** argv){
 
 			// Debugging stuff
 			//std::cout <<" "<<iLowH<<"  "<<iHighH<<" "<<iLowS<<" "<<iHighS<<" "<<iLowV<<" "<<iHighV<<std::endl; 
-			//cv::imshow("Readings", imgThresholded);
+			//cv::imshow("Segmentation", imgThresholded);
 	  		//cv::waitKey(3);
 
 			nearest_obstacle = find_nearest_point(imgThresholded,QR_code_poistion);		
@@ -307,6 +307,10 @@ int main(int argc, char** argv){
 			nearest_obstacle_drone_position = camera2drone(R,nearest_obstacle_camera_position);
 
 			nearest_obstacle_QR_position = obstacle2QR(nearest_obstacle_drone_position,QR_code_drone_position, yaw_angle);
+
+			//cv::imshow("Obstacles", frame);
+	  		//cv::waitKey(3);
+
 
 			// Publish the images	
 			image_msg.encoding = sensor_msgs::image_encodings::MONO8;

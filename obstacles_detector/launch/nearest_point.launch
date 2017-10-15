@@ -7,10 +7,10 @@
 		<remap from="image_nearest_point" to="/detector/image_nearest_point_raw"/>
 		<remap from="camera_info" to="/vrep/camera_info"/>
 		<remap from="drone_height" to="/vrep/quadrotor/height"/>
-		<remap from="QR_position_camera_frame" to="/detector/QR_position/camera"/>
-		<remap from="QR_position_drone_frame" to="/detector/QR_position/drone"/>
-		<remap from="obstacle_position_camera_frame" to="/detector/obstacle_position/camera"/>
-		<remap from="obstacle_position_drone_frame" to="/detector/obstacle_position/drone"/>
+		<remap from="QR_position_camera_frame" to="/detector/QR_code/camera"/>
+		<remap from="QR_position_drone_frame" to="/detector/QR_code/drone"/>
+		<remap from="obstacle_position_camera_frame" to="/detector/obstacle/camera"/>
+		<remap from="obstacle_position_drone_frame" to="/detector/obstacle/drone"/>
 		<remap from="obstacle_position_QR_frame" to="/detector/obstacle_position/QR"/>
 		<remap from="QR_orientation" to="/detector/QR_yaw_orientation"/>
 		
