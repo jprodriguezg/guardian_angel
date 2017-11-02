@@ -230,7 +230,7 @@ void PublishROSVectorStamped(geometry_msgs::Vector3Stamped &msg, Eigen::VectorXd
 // -------- Main --------------------
 int main(int argc, char** argv){
 
-ros::init(argc, argv, "pbvs_control_node");
+ros::init(argc, argv, "vs_control_node");
 ros::NodeHandle nh_;
 ros::NodeHandle nhp_("~");
 ros::Rate rate(20.0);
@@ -250,7 +250,7 @@ ros::Subscriber vrep_drone_pose_sub_=nh_.subscribe("vrep_drone_pose", 10, hasRec
 ros::Subscriber vrep_drone2camera_pose_sub_=nh_.subscribe("vrep_drone2camera_pose", 10, hasReceivedDrone2CameraPosition);
 ros::Subscriber vrep_drone_velocity_sub_=nh_.subscribe("vrep_drone_velocity", 10, hasReceivedDroneVelocity);
 ros::Subscriber vrep_drone_thrust_sub_=nh_.subscribe("vrep_drone_thrust_force", 10, hasDroneThrustForce);
-ros::Publisher rot_imgft_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("pbvs_image_features_rot", 1);
+ros::Publisher rot_imgft_pub_=nh_.advertise<geometry_msgs::Vector3Stamped>("vs_image_features_rot", 1);
 
 double Sx, Sy;
 // X axis Scale

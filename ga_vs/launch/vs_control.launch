@@ -17,8 +17,8 @@
   	</node-->
 
 	<!-- Launch the ibvs node -->
-	<node name="pbvs_control_node" pkg="ga_pbvs" type="pbvs_control_node" output="screen">
-      <remap from="pbvs_image_features_rot"  to="/pbvs_control/position_rot"/>
+	<node name="vs_control_node" pkg="ga_vs" type="vs_control_node" output="screen">
+      <remap from="vs_image_features_rot"  to="/vs_control/position_rot"/>
       <!-- Subscribers  -->
       <remap from="visual_tracker"  to="/visp_auto_tracker/object_position"/>
 		<remap from="vrep_drone_pose"  to="/vrep/camera/pose"/>

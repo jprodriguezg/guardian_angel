@@ -69,25 +69,28 @@ double pixeldistance(cv::Point candidate ,std::vector<int> target){
 	//double distance = abs(obstacle_u-target[0])+abs(obstacle_v-target[1]);	
 	return distance;
 }
-std::vector<int> find_nearest_point(cv::Mat image,std::vector<int> target){
+std::vector<int> find_nearest_point(cv::Mat image,std::vector<int> target, bool &detection){
 	double prev_distance = 100000;
 	std::vector<int> nearest_point(2,0);
 
-	int count_white = 0;
-	int count_black = 0;
-	int count_distance = 0;
+	// Check if there is at least a white pixel
+	int nonZeroelements = cv::countNonZero(image);
 
-	std::vector<cv::Point> locations;   // output, locations of non-zero pixels
-	cv::findNonZero(image, locations);
-
-	for(int i=0; i < locations.size(); i++){
-		if (pixeldistance(locations[i],target) <= prev_distance){
-			nearest_point[0] =locations[i].x;
-			nearest_point[1] =locations[i].y;
-			prev_distance = pixeldistance(locations[i],target);
-			count_distance++;
+	if (nonZeroelements > 0){
+		std::vector<cv::Point> locations;   // output, locations of non-zero pixels
+		cv::findNonZero(image, locations);
+		for(int i=0; i < locations.size(); i++){
+			if (pixeldistance(locations[i],target) <= prev_distance){
+				nearest_point[0] =locations[i].x;
+				nearest_point[1] =locations[i].y;
+				prev_distance = pixeldistance(locations[i],target);
+			}
 		}
+		detection = true;
 	}
+	else
+		detection = false;
+
 	return nearest_point;
 }
 
@@ -130,6 +133,7 @@ std::vector<double> obstacle2QR(std::vector<double> obstacle, std::vector<double
 	output[1] = -sin(yaw)*trans[0] + cos(yaw)*trans[1];
 	
 	return output;
+	//return output;
 }
 
 
@@ -180,6 +184,7 @@ int main(int argc, char** argv){
 	image_transport::ImageTransport it(nh_);
 	image_transport::Publisher pub_segmented_image = it.advertise("image_segmented", 1);
 	image_transport::Publisher pub_nearest_point_image = it.advertise("image_nearest_point", 1);
+	//image_transport::Publisher pub_nearest_point_image_vrep = it.advertise("image_nearest_point_vrep", 1);
 	ros::Subscriber sub_camera_info = nh_.subscribe("camera_info", 5, camera_infoCallback);
 	ros::Subscriber sub_drone_height = nh_.subscribe("drone_height", 5, hasDroneHeight);
 	ros::Publisher QR_position_camera_pub =nh_.advertise<geometry_msgs::Vector3Stamped>("QR_position_camera_frame", 1);
@@ -191,7 +196,7 @@ int main(int argc, char** argv){
 	
 	//  Script variables
 	cv_bridge::CvImage image_msg;
-	cv::Mat frame, imgHSV, imgThresholded;
+	cv::Mat frame, imgHSV, imgThresholded, frame_obstacles;
 	int iLowH, iHighH, iLowS, iHighS, iLowV, iHighV;
 
 	std::vector<cv::Vec4i> hierarchy;
@@ -214,6 +219,7 @@ int main(int argc, char** argv){
 
 	double focal_length = 700.50;
 	double yaw_angle = 0.0;
+	bool detection = false;
 	// position of QR code and nearest point in pixels
 	std::vector<int>QR_code_poistion(2,0);
 	std::vector<int>nearest_obstacle(2,0);
@@ -275,6 +281,8 @@ int main(int argc, char** argv){
 
 				computePose(points_QR_code, QR_poligon_points, cam, true, cMo_QR); // resulting pose is available in cMo var
 				yaw_angle = TakeYawAngle(vpQuaternionVector(cMo_QR.getRotationMatrix()));
+
+				cv::circle(frame,cv::Point(QR_code_poistion[0],QR_code_poistion[1]),15,cv::Scalar(0,255,00),-1);
 			}
 	
 			
@@ -295,19 +303,36 @@ int main(int argc, char** argv){
 			//cv::imshow("Segmentation", imgThresholded);
 	  		//cv::waitKey(3);
 
-			nearest_obstacle = find_nearest_point(imgThresholded,QR_code_poistion);		
-
-			cv::circle(frame,cv::Point(QR_code_poistion[0],QR_code_poistion[1]),7,cv::Scalar(255,0,0),4);
-			cv::circle(frame,cv::Point(nearest_obstacle[0],nearest_obstacle[1]),7,cv::Scalar(0,255,0),4);
-
+			// Find QR code position w.r.t camera	
 			QR_code_camera_position = compute_camera_position(camera_info.K[0], camera_info.K[2], camera_info.K[5], pixel_scale, drone_height, QR_code_poistion);
-			nearest_obstacle_camera_position = compute_camera_position(camera_info.K[0], camera_info.K[2], camera_info.K[5], pixel_scale, drone_height, nearest_obstacle);
-
+			// Find QR code position w.r.t drone
 			QR_code_drone_position = camera2drone(R,QR_code_camera_position);
-			nearest_obstacle_drone_position = camera2drone(R,nearest_obstacle_camera_position);
 
-			nearest_obstacle_QR_position = obstacle2QR(nearest_obstacle_drone_position,QR_code_drone_position, yaw_angle);
+			// Publish the position of the QR code
+			PublishROSVectorStamped(msg_point, QR_code_camera_position, QR_position_camera_pub, "camera_frame");
+			PublishROSVectorStamped(msg_point, QR_code_drone_position, QR_position_drone_pub, "drone_frame");
+	
+			// Find the nearest obstacle
+			nearest_obstacle = find_nearest_point(imgThresholded,QR_code_poistion,detection);		
 
+			if (detection == true){	
+				cv::circle(frame,cv::Point(nearest_obstacle[0],nearest_obstacle[1]),15,cv::Scalar(255,0,0),-1);
+					
+			// Find the position of the obstacle w.r.t camera frame		
+				nearest_obstacle_camera_position = compute_camera_position(camera_info.K[0], camera_info.K[2], camera_info.K[5], pixel_scale, drone_height, nearest_obstacle);
+
+				// Find the position of the obstacle w.r.t drone frame
+				nearest_obstacle_drone_position = camera2drone(R,nearest_obstacle_camera_position);
+
+				// Find the position of the obstacle w.r.t QR code frame
+				nearest_obstacle_QR_position = obstacle2QR(nearest_obstacle_drone_position,QR_code_drone_position, yaw_angle);
+
+				// Publish the positions of the obstacle in the different reference frames
+				PublishROSVectorStamped(msg_point, nearest_obstacle_camera_position, obstacle_position_camera_pub, "camera_frame");
+				PublishROSVectorStamped(msg_point, nearest_obstacle_drone_position, obstacle_position_drone_pub, "drone_frame");
+				PublishROSVectorStamped(msg_point, nearest_obstacle_QR_position, obstacle_position_QR_pub, "QR_frame");
+
+			}
 			//cv::imshow("Obstacles", frame);
 	  		//cv::waitKey(3);
 
@@ -317,16 +342,15 @@ int main(int argc, char** argv){
 			image_msg.image = imgThresholded;		
 			pub_segmented_image.publish(image_msg.toImageMsg());
 			
-			image_msg.encoding = sensor_msgs::image_encodings::BGR8;
-			image_msg.image = frame;
+			cv::flip(frame, frame_obstacles, 1);
+			cv::cvtColor(frame_obstacles, frame_obstacles, cv::COLOR_RGB2BGR);
+			image_msg.encoding = sensor_msgs::image_encodings::RGB8;
+			image_msg.image = frame_obstacles;
 			pub_nearest_point_image.publish(image_msg.toImageMsg());
 
-			// Publish the positions computed
-			PublishROSVectorStamped(msg_point, QR_code_camera_position, QR_position_camera_pub, "camera_frame");
-			PublishROSVectorStamped(msg_point, nearest_obstacle_camera_position, obstacle_position_camera_pub, "camera_frame");
-			PublishROSVectorStamped(msg_point, QR_code_drone_position, QR_position_drone_pub, "drone_frame");
-			PublishROSVectorStamped(msg_point, nearest_obstacle_drone_position, obstacle_position_drone_pub, "drone_frame");
-			PublishROSVectorStamped(msg_point, nearest_obstacle_QR_position, obstacle_position_QR_pub, "QR_frame");
+			//image_msg.encoding = sensor_msgs::image_encodings::RGB8;
+			//image_msg.image = frame;
+			//pub_nearest_point_image_vrep.publish(image_msg.toImageMsg());
 			
 			// Publish the yaw angle of the QR code
 			msg_yaw.data = yaw_angle;

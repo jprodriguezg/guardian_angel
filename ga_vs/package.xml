@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>ga_pbvs</name>
+  <name>ga_vs</name>
   <version>0.0.0</version>
-  <description>The ga_pbvs package</description>
+  <description>The ga_vs package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->

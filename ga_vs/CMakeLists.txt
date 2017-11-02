@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(ga_pbvs)
+project(ga_vs)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
@@ -25,8 +25,8 @@ include_directories(${catkin_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIR})
 
 
 ## Declare a C++ executable
-add_executable(pbvs_control_node src/pbvs_control.cpp)
+add_executable(vs_control_node src/vs_control.cpp)
 # add_executable(${PROJECT_NAME}_node src/IBVS_controller_node.cpp)
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(pbvs_position_control_node ${catkin_LIBRARIES})
+target_link_libraries(vs_control_node ${catkin_LIBRARIES})
